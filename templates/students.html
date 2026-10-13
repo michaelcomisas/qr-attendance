@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Students | QR-Attend</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;600;650;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#eef1f4;--sf:#fff;--ink:#12202e;--mut:#5d6b7a;--line:#dbe1e8;--brand:#2f4bff;--on:#fff;--bad:#b42318}
+@media(prefers-color-scheme:dark){:root{--bg:#0e1620;--sf:#16212d;--ink:#e8eef4;--mut:#93a1b0;--line:#26343f;--brand:#6c82ff;--on:#0e1620;--bad:#ff8b80}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "Schibsted Grotesk",system-ui,-apple-system,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums}
+h1{margin:0;font-size:clamp(1.8rem,4vw,2.5rem);line-height:1.15;letter-spacing:-.02em}
+p{margin:0}.mut{color:var(--mut)}.sm{font-size:.875rem}:focus-visible{outline:3px solid var(--brand);outline-offset:2px}
+header{background:var(--sf);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+header>div{max-width:1080px;margin:0 auto;padding:0 20px;height:60px;display:flex;align-items:center;gap:16px}
+.brand{font-weight:750;font-size:1.1rem;letter-spacing:-.02em;display:flex;align-items:center;gap:10px;text-decoration:none;color:inherit}
+.logo{width:22px;height:22px;border:3px solid var(--brand);border-radius:6px;position:relative}
+.logo:after{content:"";position:absolute;inset:3px;background:var(--brand)}
+nav{margin-left:auto;display:flex;gap:4px}
+nav a{font-weight:600;color:var(--mut);padding:8px 14px;border-radius:8px;text-decoration:none}
+nav a:hover{background:var(--bg)}nav a[aria-current]{color:var(--ink);background:var(--bg)}
+main{max-width:1080px;margin:0 auto;padding:36px 20px 64px}
+.head{display:flex;justify-content:space-between;align-items:end;gap:16px;flex-wrap:wrap;margin-bottom:28px}
+.card{background:var(--sf);border:1px solid var(--line);border-radius:10px;padding:22px}
+.btn{font:inherit;font-weight:650;border:1px solid var(--line);background:var(--sf);color:var(--ink);padding:9px 16px;border-radius:8px;cursor:pointer;text-decoration:none;display:inline-block;white-space:nowrap}
+.btn:hover{border-color:var(--mut)}.btn.pri{background:var(--brand);color:var(--on);border-color:var(--brand)}.btn.dng{color:var(--bad)}.btn.sm{padding:6px 12px;margin-top:10px}
+label{display:block;font-weight:600;font-size:.875rem;margin-bottom:6px}
+input{font:inherit;width:100%;padding:11px 13px;border:1px solid var(--line);border-radius:8px;background:var(--sf);color:var(--ink)}
+input:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px color-mix(in srgb,var(--brand) 25%,transparent)}
+.form{display:grid;grid-template-columns:1fr 1.4fr 1fr auto;gap:12px;align-items:end;margin-bottom:22px}
+.err{color:var(--bad);font-weight:600;margin-bottom:12px;display:none}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px}
+.badge{padding:18px;text-align:center}.badge b{display:block}
+.badge img{width:130px;height:130px;margin:8px 0;background:#fff;border-radius:6px}
+.id{font-family:ui-monospace,Consolas,monospace;font-size:.875rem}
+.empty{grid-column:1/-1;text-align:center;color:var(--mut);padding:36px 12px}
+@media(max-width:820px){.form{grid-template-columns:1fr}.brand span{display:none}nav a{padding:8px 10px}}
+@media print{header,.head .btn,.form,.badge .btn{display:none}body{background:#fff}}
+</style>
+</head>
+<body>
+<header><div>
+  <a class="brand" href="/"><span class="logo"></span><span>QR-Attend</span></a>
+  <nav>
+    <a href="/">Check in</a>
+    <a href="/students" aria-current="page">Students</a>
+  </nav>
+</div></header>
+
+<main>
+  <div class="head">
+    <div><h1>Students</h1><p class="mut">Each student gets a personal badge QR for check-in.</p></div>
+    <button class="btn" onclick="window.print()">Print badges</button>
+  </div>
+
+  <form class="card form" id="f">
+    <div><label for="student_id">Student ID</label><input id="student_id" required placeholder="2026-0001"></div>
+    <div><label for="name">Full name</label><input id="name" required placeholder="Juan Dela Cruz"></div>
+    <div><label for="class_name">Class or section</label><input id="class_name" required placeholder="BSCS 3-A"></div>
+    <button class="btn pri" type="submit">Add student</button>
+  </form>
+  <p class="err" id="err" role="alert"></p>
+
+  <div class="grid" id="grid"></div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+async function load() {
+  const students = await (await fetch('/api/students')).json();
+  $('grid').innerHTML = students.length ? students.map(s => {
+    const qr = '/api/qr?d=' + encodeURIComponent(s.qr_token);
+    return `<div class="card badge">
+      <b>${esc(s.name)}</b><span class="mut sm">${esc(s.class_name)}</span><br>
+      <img src="${qr}" alt="Badge QR for ${esc(s.name)}">
+      <span class="id mut">${esc(s.student_id)}</span><br>
+      <a class="btn sm" href="${qr}" download="${esc(s.student_id)}.png">Download</a>
+      <button class="btn sm dng" data-id="${esc(s.student_id)}">Remove</button>
+    </div>`;
+  }).join('') : `<div class="card empty">No students yet. Add one above, or
+      <button class="btn" id="seed">load 3 sample students</button></div>`;
+
+  document.querySelectorAll('[data-id]').forEach(b => b.onclick = async () => {
+    if (!confirm('Remove ' + b.dataset.id + ' and their attendance records?')) return;
+    await fetch('/api/students/' + encodeURIComponent(b.dataset.id), { method: 'DELETE' });
+    load();
+  });
+  const seed = $('seed');
+  if (seed) seed.onclick = async () => { await fetch('/api/seed', { method: 'POST' }); load(); };
+}
+
+$('f').onsubmit = async e => {
+  e.preventDefault();
+  $('err').style.display = 'none';
+  const r = await fetch('/api/register', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ student_id: $('student_id').value, name: $('name').value, class_name: $('class_name').value })
+  });
+  if (r.ok) { e.target.reset(); load(); }
+  else { const d = await r.json(); $('err').textContent = d.message; $('err').style.display = 'block'; }
+};
+load();
+</script>
+</body>
+</html>

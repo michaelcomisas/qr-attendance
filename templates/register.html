@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Register | QR-Attend</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;600;650;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="top"><div>
+  <a class="brand" href="/"><i></i><span>QR-Attend</span></a>
+  <nav><a href="/" aria-current="page">Register</a><a href="/dashboard">Instructor</a></nav>
+</div></header>
+<main class="narrow">
+  <section id="formView">
+    <h1>Register for attendance</h1>
+    <p class="lead mut">Fill this in once. You'll get your own QR code to show the instructor's camera when attendance starts.</p>
+    <form class="card stack" id="f">
+      <div><label for="sid">Student ID</label><input id="sid" required placeholder="2026-0001" autocomplete="off"></div>
+      <div><label for="name">Full name</label><input id="name" required placeholder="Juan Dela Cruz" autocomplete="name"></div>
+      <div><label for="cls">Class or section</label><input id="cls" required placeholder="BSCS 3-A"></div>
+      <button class="btn pri" type="submit">Register and get my QR</button>
+    </form>
+    <p class="err" id="err" role="alert"></p>
+    <details>
+      <summary>Already registered? Lost your QR?</summary>
+      <form class="card stack" id="find">
+        <div><label for="fsid">Student ID</label><input id="fsid" required></div>
+        <div><label for="fname">Full name (as you registered it)</label><input id="fname" required></div>
+        <button class="btn" type="submit">Find my QR</button>
+      </form>
+      <p class="err" id="ferr" role="alert"></p>
+    </details>
+  </section>
+
+  <section id="qrView" hidden>
+    <div class="card qrcard" id="myqr">
+      <p class="mut" id="welcome"></p>
+      <h1 id="qName"></h1><p class="mut" id="qMeta"></p>
+      <img id="qImg" alt="Your personal attendance QR code">
+      <p>Screenshot or print this. Show it to the instructor's camera when attendance starts.</p>
+      <div class="tools"><a class="btn pri" id="dl" href="#">Download QR</a><button class="btn" onclick="window.print()">Print</button></div>
+    </div>
+    <p style="margin-top:16px"><button class="btn" id="back">Not you? Register or find another</button></p>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id), KEY = 'qa_me';
+function showQr(s, back) {
+  $('qName').textContent = s.name;
+  $('qMeta').textContent = s.student_id + ' · ' + s.class_name;
+  const u = '/api/qr?d=' + encodeURIComponent(s.qr_token);
+  $('qImg').src = u; $('dl').href = u; $('dl').download = s.student_id + '-qr.png';
+  $('welcome').textContent = back ? 'Welcome back. This is the QR to show.' : 'You are registered. Save this QR now.';
+  $('formView').hidden = true; $('qrView').hidden = false;
+  try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {}
+}
+async function post(url, body) {
+  const r = await fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+  return [r.ok, await r.json()];
+}
+$('f').onsubmit = async e => {
+  e.preventDefault(); $('err').style.display = 'none';
+  const b = { student_id: $('sid').value, name: $('name').value, class_name: $('cls').value };
+  const [ok, d] = await post('/api/register', b);
+  if (ok) showQr({ student_id: b.student_id.trim(), name: b.name.trim(), class_name: b.class_name.trim(), qr_token: d.qr_token });
+  else { $('err').textContent = d.message; $('err').style.display = 'block'; }
+};
+$('find').onsubmit = async e => {
+  e.preventDefault(); $('ferr').style.display = 'none';
+  const r = await fetch('/api/my-qr?student_id=' + encodeURIComponent($('fsid').value) + '&name=' + encodeURIComponent($('fname').value));
+  const d = await r.json();
+  if (r.ok) showQr(d, true); else { $('ferr').textContent = d.message; $('ferr').style.display = 'block'; }
+};
+$('back').onclick = () => { try { localStorage.removeItem(KEY); } catch (e) {} $('qrView').hidden = true; $('formView').hidden = false; };
+try { const me = JSON.parse(localStorage.getItem(KEY)); if (me && me.qr_token) showQr(me, true); } catch (e) {}
+</script>
+</body>
+</html>

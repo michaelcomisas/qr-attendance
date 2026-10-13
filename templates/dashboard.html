@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Instructor | QR-Attend</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;600;650;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<script src="https://unpkg.com/html5-qrcode"></script>
+</head>
+<body>
+<header class="top"><div>
+  <a class="brand" href="/"><i></i><span>QR-Attend</span></a>
+  <nav><a href="/">Register</a><a href="/dashboard" aria-current="page">Instructor</a></nav>
+</div></header>
+<main>
+  <!-- PIN login -->
+  <div id="login" hidden style="max-width:380px;margin:40px auto">
+    <h1>Instructor login</h1>
+    <form class="card stack" id="pinForm" style="margin-top:20px">
+      <div><label for="pin">PIN</label><input id="pin" type="password" required autofocus></div>
+      <button class="btn pri" type="submit">Open dashboard</button>
+    </form>
+    <p class="err" id="pinErr">Wrong PIN.</p>
+  </div>
+
+  <div id="app" hidden>
+    <div class="head">
+      <div><h1>Attendance</h1><p class="mut" id="state"></p></div>
+      <div class="tools">
+  <a class="btn" id="exp" href="/api/export.csv" hidden>Export CSV</a>
+  <button class="btn" id="logout">Log out</button>
+</div>
+    </div>
+
+    <div class="card ctl">
+      <div><label for="label">Class or subject</label><input id="label" placeholder="e.g. Programming 1"></div>
+      <div><label for="late">Late after (minutes)</label><input id="late" type="number" min="0" value="{{ d_late }}"></div>
+      <div><label for="absent">Absent after (minutes)</label><input id="absent" type="number" min="1" value="{{ d_absent }}"></div>
+      <div class="tools">
+        <button class="btn pri" id="start">Start attendance</button>
+        <button class="btn pri" id="upd" hidden>Update times</button>
+        <button class="btn dng" id="end" hidden>End attendance</button>
+      </div>
+    </div>
+
+    <div class="split">
+      <div>
+        <div class="vf" id="vf"><div id="reader"></div><i class="tl"></i><i class="tr"></i><i class="bl"></i><i class="br"></i></div>
+        <div class="res" id="res" role="status" aria-live="polite"><div><b id="rt"></b><span class="sm" id="rm"></span></div><span class="t" id="rtime"></span></div>
+      </div>
+      <div>
+        <div class="stats">
+  <div class="card stat"><b id="nT">0</b><span class="mut">Registered</span></div>
+  <div class="card stat ok"><b id="nP">0</b><span class="mut">Present</span></div>
+  <div class="card stat warn"><b id="nL">0</b><span class="mut">Late</span></div>
+  <div class="card stat bad"><b id="nA">0</b><span class="mut">Absent</span></div>
+</div>
+        <div class="card"><h2 style="margin:0 0 8px" id="pendT">Not checked in yet</h2><ul class="list" id="pend"></ul></div>
+      </div>
+    </div>
+
+    <h2>Check-ins</h2>
+    <div class="card" style="padding:8px 10px">
+      <table><thead><tr><th>Student</th><th>Class</th><th>Time</th><th>Status</th></tr></thead><tbody id="rows"></tbody></table>
+    </div>
+
+    <h2>Registered students</h2>
+    <div class="card"><ul class="list" id="stu"></ul></div>
+  </div>
+</main>
+
+<script>
+const AUTH = {{ 'true' if authed else 'false' }};
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const T = iso => new Date(iso.replace(' ', 'T'));
+const fmt = d => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const LBL = { PRESENT: 'Present', LATE: 'Late', ABSENT: 'Absent' };
+let busy = false, filled = null;
+
+if (!AUTH) {
+  $('login').hidden = false;
+  $('pinForm').onsubmit = async e => {
+    e.preventDefault();
+    const r = await fetch('/api/login', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ pin: $('pin').value }) });
+    if (r.ok) location.reload(); else $('pinErr').style.display = 'block';
+  };
+} else { $('app').hidden = false; init(); }
+
+$('logout').onclick = async () => { await fetch('/api/logout', { method: 'POST' }); location.reload(); };
+
+/* ----- session controls ----- */
+const body = () => JSON.stringify({ label: $('label').value, late_min: $('late').value, absent_min: $('absent').value });
+async function post(url, b) {
+  const r = await fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: b });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) alert(d.message || 'Something went wrong.');
+  filled = null; load();
+}
+$('start').onclick = () => post('/api/session/start', body());
+$('upd').onclick = () => post('/api/session/update', body());
+$('end').onclick = () => confirm("End attendance? Students who haven't scanned will count as absent.") && post('/api/session/end', '{}');
+
+/* ----- camera ----- */
+function show(kind, title, msg, time) {
+  $('res').className = 'res show ' + kind;
+  $('rt').textContent = title; $('rm').textContent = msg || ''; $('rtime').textContent = time || '';
+  $('vf').classList.remove('ok', 'warn', 'bad'); $('vf').classList.add(kind);
+}
+async function scan(code) {
+  if (busy) return; busy = true;
+  try {
+    const r = await fetch('/api/scan', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ qr_code: code }) });
+    if (r.status === 401) return location.reload();
+    const d = await r.json();
+    const k = a => a === 'PRESENT' ? 'ok' : a === 'LATE' ? 'warn' : 'bad';
+    if (d.status === 'success') show(k(d.attendance), d.student_name, 'Marked ' + LBL[d.attendance] + (d.attendance === 'ABSENT' ? ' (after the cutoff)' : ''), fmt(T(d.time)));
+    else if (d.status === 'duplicate') show('warn', d.student_name, 'Already checked in as ' + LBL[d.attendance], fmt(T(d.time)));
+    else show('bad', 'Not recorded', d.message);
+    load();
+  } catch (e) { show('bad', 'Server unreachable', 'Make sure app.py is running.'); }
+  setTimeout(() => { busy = false; $('vf').classList.remove('ok', 'warn', 'bad'); }, 2500);
+}
+function startCamera() {
+  const noCam = () => { $('reader').innerHTML = '<p class="nocam">Camera unavailable. Open this page at http://localhost:5000 on this computer and allow the camera.</p>'; };
+  try { new Html5Qrcode('reader').start({ facingMode: 'environment' }, { fps: 10, qrbox: { width: 240, height: 240 } }, scan).catch(noCam); }
+  catch (e) { noCam(); }
+}
+
+/* ----- live data ----- */
+async function load() {
+  const r = await fetch('/api/dashboard');
+  if (r.status === 401) return location.reload();
+  const d = await r.json(), s = d.session, on = d.active;
+  $('start').hidden = on; $('upd').hidden = !on; $('end').hidden = !on; $('exp').hidden = !s;
+  if (s && on && filled !== s.id) { filled = s.id; $('label').value = s.label; $('late').value = s.late_min; $('absent').value = s.absent_min; }
+  if (!s) $('state').textContent = 'No attendance yet. Set the times below, then press Start.';
+  else if (on) {
+    const st = T(s.started_at).getTime();
+    $('state').textContent = `${s.label}: open since ${fmt(T(s.started_at))}. Present until ${fmt(new Date(st + s.late_min * 6e4))}, late until ${fmt(new Date(st + s.absent_min * 6e4))}. Right now: ${LBL[d.phase]}.`;
+  } else $('state').textContent = `${s.label}: ended at ${fmt(T(s.ended_at))}.`;
+  $('nT').textContent = d.present + d.late + d.absent;
+$('nP').textContent = d.present; $('nL').textContent = d.late; $('nA').textContent = d.absent;
+  $('pendT').textContent = on ? 'Not checked in yet' : 'Absent (never scanned)';
+  $('pend').innerHTML = d.pending.length ? d.pending.map(p => `<li><span>${esc(p.name)}</span><span class="id mut">${esc(p.student_id)}</span></li>`).join('')
+    : '<li class="mut">Everyone has checked in.</li>';
+  $('rows').innerHTML = d.logs.length ? d.logs.map(l => `<tr>
+    <td><b>${esc(l.name)}</b><br><span class="id mut">${esc(l.student_id)}</span></td><td>${esc(l.class_name)}</td>
+    <td>${esc(fmt(T(l.scanned_at)))}</td><td><span class="pill ${esc(l.status)}">${esc(LBL[l.status] || l.status)}</span></td></tr>`).join('')
+    : '<tr><td colspan="4" class="empty">No check-ins yet.</td></tr>';
+}
+async function students() {
+  const r = await fetch('/api/students'); if (!r.ok) return;
+  const a = await r.json();
+  $('stu').innerHTML = a.length ? a.map(x => `<li><span><b>${esc(x.name)}</b> <span class="mut sm">${esc(x.class_name)}</span></span>
+    <span><span class="id mut">${esc(x.student_id)}</span> <button class="btn sm dng" data-id="${esc(x.student_id)}">Remove</button></span></li>`).join('')
+    : '<li class="mut">Nobody registered yet. Share the registration page with your students.</li>';
+  document.querySelectorAll('[data-id]').forEach(b => b.onclick = async () => {
+    if (!confirm('Remove ' + b.dataset.id + ' and their records?')) return;
+    await fetch('/api/students/' + encodeURIComponent(b.dataset.id), { method: 'DELETE' });
+    students(); load();
+  });
+}
+function init() { startCamera(); load(); students(); setInterval(load, 5000); setInterval(students, 15000); }
+</script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}QR-Attend{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;600;650;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="top"><div>
+  <a class="brand" href="/"><i></i><span>QR-Attend</span></a>
+  <nav>
+    <a href="/" {% if page=='scan' %}aria-current="page"{% endif %}>Check in</a>
+    <a href="/dashboard" {% if page=='dashboard' %}aria-current="page"{% endif %}>Dashboard</a>
+    <a href="/students" {% if page=='students' %}aria-current="page"{% endif %}>Students</a>
+  </nav>
+</div></header>
+<main>{% block content %}{% endblock %}</main>
+<script>
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+</script>
+{% block script %}{% endblock %}
+</body>
+</html>
